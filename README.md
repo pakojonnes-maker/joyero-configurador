@@ -1,0 +1,1 @@
+Configurador de joyeros modulares. © 2026. Diseño, modelos y sistema de montaje protegidos; prohibida su copia o reproducción.

@@ -103,6 +103,7 @@ label.campo textarea { min-height: 64px; resize: vertical; }
 <body>
 <header>
   <h1>Diseña tu joyero</h1>
+  <span id="modo-prueba" hidden style="background:#a8402c;color:#fff;border-radius:999px;padding:3px 10px;font-size:12.5px">Modo prueba: límites desactivados</span>
   <p>Elige dónde va, monta las filas y añade las piezas. Cuando te guste, descárgalo y envíanoslo.</p>
   <button class="boton" id="deshacer" disabled>Deshacer</button>
 </header>
@@ -172,6 +173,8 @@ const SEG = {
 };
 // Puerta del armario: solo piezas planas para que cierre sin tocar baldas ni ropa, y que quepan en una hoja de 50 cm
 const PUERTA_MAX = { fondo: 45, ancho: 400, alto: 1100 };
+// Modo prueba (?sinlimites): quita los límites de uso (puerta, adhesivo, torre arriba). Los choques y el «no cabe» se siguen comprobando.
+const SIN_LIMITES = new URLSearchParams(location.search).has('sinlimites');
 const PESADAS = ['cajon1', 'cajon2', 'torre2', 'torre3', 'repisa', 'cubeta'];   // no se permiten con adhesivo
 
 // ============================================================ datos
@@ -342,21 +345,21 @@ function montar(est) {
 }
 const fondoDe = (p, ori) => PROD[p].ori[ori]?.caja[3] ?? 0;
 function comprobar(est) {
-  if (est.lugar === 'puerta') {
+  if (est.lugar === 'puerta' && !SIN_LIMITES) {
     const q = est.filas.flatMap((f) => f.items.map((i) => [i.p, f.ori])).find(([p, o]) => fondoDe(p, o) > PUERTA_MAX.fondo);
     if (q) return { ok: false, motivo: `«${PROD[q[0]].nombre}» sobresale demasiado para la puerta: al cerrarla chocaría con las baldas. En la puerta solo van piezas planas.` };
   }
-  if (est.sujecion === 'adhesivo') {
+  if (est.sujecion === 'adhesivo' && !SIN_LIMITES) {
     const p = est.filas.flatMap((f) => f.items).find((i) => PESADAS.includes(i.p));
     if (p) return { ok: false, motivo: `Con adhesivo no podemos garantizar que aguante «${PROD[p.p].nombre}». Elige tornillos o quita esa pieza.` };
   }
   for (const f of est.filas) {
     const j = f.items.findIndex((i, k) => k > 0 && /^torre/.test(i.p));
-    if (f.ori === 'v' && j > 0) return { ok: false, motivo: 'La torre de cajones va siempre arriba del todo de su columna (su bandeja sobresale por encima).' };
+    if (f.ori === 'v' && j > 0 && !SIN_LIMITES) return { ok: false, motivo: 'La torre de cajones va siempre arriba del todo de su columna (su bandeja sobresale por encima).' };
   }
   const m = montar(est);
   if (!m.ok) return { ok: false, motivo: `No cabe en la ${nombreFila(m.fila, est)}: elige un largo mayor o quita alguna pieza.` };
-  if (est.lugar === 'puerta' && m.filas.length) {
+  if (est.lugar === 'puerta' && m.filas.length && !SIN_LIMITES) {
     if (m.caja[1] - m.caja[0] > PUERTA_MAX.ancho) return { ok: false, motivo: `En la puerta caben ${cm(PUERTA_MAX.ancho)} de ancho como máximo: usa filas más cortas.` };
     if (m.caja[5] - m.caja[4] > PUERTA_MAX.alto) return { ok: false, motivo: `En la puerta caben ${cm(PUERTA_MAX.alto)} de alto como máximo: quita alguna fila.` };
   }
@@ -755,7 +758,7 @@ function pintarPanel() {
   const fs = E.filas.find((f) => f.id === E.sel);
   $('#destino').textContent = fs ? `la ${nombreFila(fs)}` : 'una fila';
   $('#catalogo').innerHTML = CATS.map((cat) => `<div class="cat"><h3>${esc(cat)}</h3><div class="productos">${KIT.productos.filter((p) => p.categoria === cat).map((p) => {
-    const encaja = fs && p.ori[fs.ori], plana = !fs || E.lugar !== 'puerta' || fondoDe(p.id, fs.ori) <= PUERTA_MAX.fondo;
+    const encaja = fs && p.ori[fs.ori], plana = SIN_LIMITES || !fs || E.lugar !== 'puerta' || fondoDe(p.id, fs.ori) <= PUERTA_MAX.fondo;
     const ok = encaja && plana;
     const motivo = !fs ? 'Primero elige una fila' : (!encaja ? (fs.ori === 'h' ? 'Solo en columnas' : 'Solo en filas') : (!plana ? 'Abulta demasiado para la puerta' : ''));
     return `<button class="prod" data-p="${p.id}" ${ok ? '' : 'disabled'} title="${esc(motivo || p.descripcion)}">
@@ -878,7 +881,7 @@ function foto() {
 function pedido() {
   const { lista } = filamentos(), c = M.caja;
   return {
-    formato: 'pedido-joyero-modular', version: 1, fecha: new Date().toISOString(),
+    formato: 'pedido-joyero-modular', version: 1, fecha: new Date().toISOString(), ...(SIN_LIMITES ? { modo_prueba: true } : {}),
     cliente: { nombre: $('#c-nombre').value.trim(), contacto: $('#c-contacto').value.trim(), notas: $('#c-notas').value.trim() },
     lugar: E.lugar, lugar_nombre: LUGARES[E.lugar].nombre, sujecion: E.sujecion,
     ambiente: { pared: E.pared, armario: /armario|puerta/.test(E.lugar) ? ARMARIOS[E.armario].nombre : null },
@@ -914,6 +917,7 @@ $('#archivo').onchange = async (e) => {
 };
 
 // ============================================================ arranque
+if (SIN_LIMITES) $('#modo-prueba').hidden = false;
 if (!E || !comprobar(E).ok) E = sanear(estadoInicial());
 if (!E.filas.find((f) => f.id === E.sel)) E.sel = E.filas[0]?.id ?? null;
 M = montar(E);
